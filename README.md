@@ -1,5 +1,9 @@
 # Linux ADK
 
+## Foreword
+
+This fork of gibsson's linux-adk is specifically geared towards investigating HID over AOAv2 on Windows, and removes some/all of the other features.
+
 ## Introduction
 
 This software aims to turn your GNU/Linux machine into an Android Accessory.
@@ -58,14 +62,22 @@ Therefore the build is done manually as follow:
 ```
 $ make
 ```
-This software requires the use of `libusb`.
+This software requires the use of [`libusb`](https://github.com/libusb/libusb/releases).
 
 For cross-compiling, several environment variables must be set manually:
 ```
 $ export ARCH=arm
 $ export CROSS_COMPILE=<custom_toolchain>
-$ export CFLAGS="-I<path_to_libusb_headers> -I<path_to_libasound_headers>"
-$ export LDFLAGS="-L<path_to_libusb> -L<path_to_libasound>"
+$ export CFLAGS="-I<path_to_libusb_headers>
+$ export LDFLAGS="-L<path_to_libusb>
+$ make
+```
+
+For example, to cross-compile from WSL to 64-bit Windows using MinGW:
+```
+$ export CROSS_COMPILE=x86_64-w64-mingw32-
+$ export CFLAGS="-Ilibusb/include/libusb-1.0"
+$ export LDFLAGS="-Llibusb/MinGW64/dll"
 $ make
 ```
 
@@ -94,6 +106,10 @@ $ adb kill-server
 
     - *Manufacturer*: WinUsb Device
     - *Model*: ADB Device
+
+3) If you're getting `Error -12 claiming interface...`, you may need to use [`Zadig`](https://zadig.akeo.ie/) to install a generic `WinUSB (v6.1.7600.16385)` driver for Interface 0. Uninstalling the driver also seemed to work, so maybe this isn't necessary...?
+
+When first plugging in your phone, Device Manager should list an `Android Composite ADB Interface`. After it switches to accessory mode, I get one `Android Accessory Interface` under the `Universal Serial Bus devices` group (interface 3) and one under the `Other Devices` group (interface 0).
 
 ## License
 

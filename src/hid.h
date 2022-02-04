@@ -21,21 +21,8 @@
 #ifndef _HID_H_
 #define _HID_H_
 
-#include <pthread.h>
-
-/* Structures */
-typedef struct {
-	struct libusb_device_handle *handle;
-	unsigned char descriptor[256];
-	int descriptor_size;
-	int endpoint_in;
-	ssize_t packet_size;
-	pthread_t rx_thread;
-} hid_device;
-
 /* Functions */
-extern int send_hid_descriptor(accessory_t *acc, hid_device *hid);
-extern int register_hid_callback(accessory_t* acc, hid_device *hid);
-extern unsigned char search_hid(hid_device *hid);
+extern int send_hid_descriptor(accessory_t *acc);
+extern int send_hid_inputs(accessory_t *acc);
 
 #endif /* _HID_H_ */

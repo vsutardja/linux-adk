@@ -22,12 +22,7 @@
 #define _LINUX_ADK_H_
 
 #include <stdint.h>
-#ifndef WIN32
 #include <unistd.h>
-#else
-#define sleep(x) Sleep(x * 1000)
-#define usleep(x) Sleep(x / 1000)
-#endif
 
 /* Android Open Accessory protocol defines */
 #define AOA_GET_PROTOCOL		51
@@ -64,6 +59,8 @@
 /* App defines */
 #define PACKAGE_VERSION		"0.4"
 #define PACKAGE_BUGREPORT	"bisson.gary@gmail.com"
+
+#define ARRAY_LEN(a) (sizeof(a) / sizeof(a[0]))
 
 /* Variable to stop accessory */
 extern volatile int stop_acc;

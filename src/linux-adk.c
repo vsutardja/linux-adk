@@ -33,7 +33,7 @@ volatile int stop_acc = 0;
 int verbose = 0;
 
 static const accessory_t acc_default = {
-	.device = "18d1:4e42",
+	.device = "18d1:4ee7",
 	.manufacturer = "Google, Inc.",
 	.model = "AccessoryChat",
 	.description = "Sample Program",
@@ -45,6 +45,9 @@ static const accessory_t acc_default = {
 static int is_accessory_present(accessory_t * acc);
 static int init_accessory(accessory_t * acc, int aoa_max_version);
 static void fini_accessory(accessory_t * acc);
+static int iden_accessory(accessory_t * acc);
+static void print_descriptor(struct libusb_device_handle *handle); 
+
 
 static void show_help(char *name)
 {
@@ -166,10 +169,7 @@ int main(int argc, char *argv[])
 		acc.serial = acc_default.serial;
 	if (!acc.url)
 		acc.url = acc_default.url;
-#ifdef WIN32
-	/* AOA 2.0 not supported on Windows (pthread/hid/audio deps) */
-	aoa_max_version = 1;
-#endif
+
 	if (init_accessory(&acc, aoa_max_version) != 0)
 		goto end;
 
@@ -213,6 +213,9 @@ static int init_accessory(accessory_t * acc, int aoa_max_version)
 		return -1;
 	}
 
+    if (verbose)
+        print_descriptor(acc->handle);
+
 	/* Now asking if device supports Android Open Accessory protocol */
 	ret = libusb_control_transfer(acc->handle,
 				      LIBUSB_ENDPOINT_IN |
@@ -240,83 +243,10 @@ static int init_accessory(accessory_t * acc, int aoa_max_version)
 		return -1;
 	}
 
-	printf("Sending identification to the device\n");
-
-	if (acc->manufacturer) {
-		printf(" sending manufacturer: %s\n", acc->manufacturer);
-		ret = libusb_control_transfer(acc->handle,
-					      LIBUSB_ENDPOINT_OUT
-					      | LIBUSB_REQUEST_TYPE_VENDOR,
-					      AOA_SEND_IDENT, 0,
-					      AOA_STRING_MAN_ID,
-					      (uint8_t *) acc->manufacturer,
-					      strlen(acc->manufacturer) + 1, 0);
-		if (ret < 0)
-			goto error;
-	}
-
-	if (acc->model) {
-		printf(" sending model: %s\n", acc->model);
-		ret = libusb_control_transfer(acc->handle,
-					      LIBUSB_ENDPOINT_OUT
-					      | LIBUSB_REQUEST_TYPE_VENDOR,
-					      AOA_SEND_IDENT, 0,
-					      AOA_STRING_MOD_ID,
-					      (uint8_t *) acc->model,
-					      strlen(acc->model) + 1, 0);
-		if (ret < 0)
-			goto error;
-	}
-
-	printf(" sending description: %s\n", acc->description);
-	ret = libusb_control_transfer(acc->handle,
-				      LIBUSB_ENDPOINT_OUT |
-				      LIBUSB_REQUEST_TYPE_VENDOR,
-				      AOA_SEND_IDENT, 0, AOA_STRING_DSC_ID,
-				      (uint8_t *) acc->description,
-				      strlen(acc->description) + 1, 0);
-	if (ret < 0)
-		goto error;
-
-	printf(" sending version: %s\n", acc->version);
-	ret = libusb_control_transfer(acc->handle,
-				      LIBUSB_ENDPOINT_OUT |
-				      LIBUSB_REQUEST_TYPE_VENDOR,
-				      AOA_SEND_IDENT, 0, AOA_STRING_VER_ID,
-				      (uint8_t *) acc->version,
-				      strlen(acc->version) + 1, 0);
-	if (ret < 0)
-		goto error;
-
-	printf(" sending url: %s\n", acc->url);
-	ret = libusb_control_transfer(acc->handle,
-				      LIBUSB_ENDPOINT_OUT |
-				      LIBUSB_REQUEST_TYPE_VENDOR,
-				      AOA_SEND_IDENT, 0, AOA_STRING_URL_ID,
-				      (uint8_t *) acc->url,
-				      strlen(acc->url) + 1, 0);
-	if (ret < 0)
-		goto error;
-
-	printf(" sending serial number: %s\n", acc->serial);
-	ret = libusb_control_transfer(acc->handle,
-				      LIBUSB_ENDPOINT_OUT |
-				      LIBUSB_REQUEST_TYPE_VENDOR,
-				      AOA_SEND_IDENT, 0, AOA_STRING_SER_ID,
-				      (uint8_t *) acc->serial,
-				      strlen(acc->serial) + 1, 0);
-	if (ret < 0)
-		goto error;
-
-	if (acc->aoa_version >= 2) {
-		printf(" asking for audio support\n");
-		ret = libusb_control_transfer(acc->handle,
-					      LIBUSB_ENDPOINT_OUT
-					      | LIBUSB_REQUEST_TYPE_VENDOR,
-					      AOA_AUDIO_SUPPORT, 1, 0, 0, 0, 0);
-		if (ret < 0)
-			goto error;
-	}
+    if (iden_accessory(acc) < 0) {
+        printf("Error identifying accessory\n");
+        goto error;
+    }
 
 	printf("Turning the device in Accessory mode\n");
 	ret = libusb_control_transfer(acc->handle,
@@ -325,6 +255,8 @@ static int init_accessory(accessory_t * acc, int aoa_max_version)
 				      AOA_START_ACCESSORY, 0, 0, NULL, 0, 0);
 	if (ret < 0)
 		goto error;
+
+    libusb_close(acc->handle);
 
 	/* Let some time for the new enumeration to happen */
 	usleep(10000);
@@ -390,6 +322,10 @@ claim:
 	acc->handle = handle;
 	acc->vid = vid;
 	acc->pid = pid;
+    if (verbose)
+        print_descriptor(acc->handle);
+    if (iden_accessory(acc) < 0)
+        return 0;
 	return 1;
 }
 
@@ -405,4 +341,181 @@ static void fini_accessory(accessory_t * acc)
 	libusb_exit(NULL);
 
 	return;
+}
+
+static int iden_accessory(accessory_t * acc)
+{
+	printf("Sending identification to the device\n");
+
+    int ret;
+
+	if (acc->manufacturer) {
+        if (verbose)
+            printf(" sending manufacturer: %s\n", acc->manufacturer);
+		ret = libusb_control_transfer(acc->handle,
+					      LIBUSB_ENDPOINT_OUT
+					      | LIBUSB_REQUEST_TYPE_VENDOR,
+					      AOA_SEND_IDENT, 0,
+					      AOA_STRING_MAN_ID,
+					      (uint8_t *) acc->manufacturer,
+					      strlen(acc->manufacturer) + 1, 0);
+		if (ret < 0)
+			return ret;
+	}
+
+	if (acc->model) {
+        if (verbose)
+            printf(" sending model: %s\n", acc->model);
+		ret = libusb_control_transfer(acc->handle,
+					      LIBUSB_ENDPOINT_OUT
+					      | LIBUSB_REQUEST_TYPE_VENDOR,
+					      AOA_SEND_IDENT, 0,
+					      AOA_STRING_MOD_ID,
+					      (uint8_t *) acc->model,
+					      strlen(acc->model) + 1, 0);
+		if (ret < 0)
+			return ret;
+	}
+
+    if (verbose)
+        printf(" sending description: %s\n", acc->description);
+	ret = libusb_control_transfer(acc->handle,
+				      LIBUSB_ENDPOINT_OUT |
+				      LIBUSB_REQUEST_TYPE_VENDOR,
+				      AOA_SEND_IDENT, 0, AOA_STRING_DSC_ID,
+				      (uint8_t *) acc->description,
+				      strlen(acc->description) + 1, 0);
+	if (ret < 0)
+		return ret;
+
+    if (verbose)
+        printf(" sending version: %s\n", acc->version);
+	ret = libusb_control_transfer(acc->handle,
+				      LIBUSB_ENDPOINT_OUT |
+				      LIBUSB_REQUEST_TYPE_VENDOR,
+				      AOA_SEND_IDENT, 0, AOA_STRING_VER_ID,
+				      (uint8_t *) acc->version,
+				      strlen(acc->version) + 1, 0);
+	if (ret < 0)
+		return ret;
+
+    if (verbose)
+        printf(" sending url: %s\n", acc->url);
+	ret = libusb_control_transfer(acc->handle,
+				      LIBUSB_ENDPOINT_OUT |
+				      LIBUSB_REQUEST_TYPE_VENDOR,
+				      AOA_SEND_IDENT, 0, AOA_STRING_URL_ID,
+				      (uint8_t *) acc->url,
+				      strlen(acc->url) + 1, 0);
+	if (ret < 0)
+		return ret;
+
+    if (verbose)
+        printf(" sending serial number: %s\n", acc->serial);
+	ret = libusb_control_transfer(acc->handle,
+				      LIBUSB_ENDPOINT_OUT |
+				      LIBUSB_REQUEST_TYPE_VENDOR,
+				      AOA_SEND_IDENT, 0, AOA_STRING_SER_ID,
+				      (uint8_t *) acc->serial,
+				      strlen(acc->serial) + 1, 0);
+	if (ret < 0)
+		return ret;
+
+	if (acc->aoa_version >= 2) {
+        if (verbose)
+            printf(" asking for audio support\n");
+		ret = libusb_control_transfer(acc->handle,
+					      LIBUSB_ENDPOINT_OUT
+					      | LIBUSB_REQUEST_TYPE_VENDOR,
+					      AOA_AUDIO_SUPPORT, 1, 0, 0, 0, 0);
+		if (ret < 0)
+			return ret;
+	}
+
+    return 0;
+}
+
+void print_descriptor(libusb_device_handle *handle)
+{
+    libusb_device *device = libusb_get_device(handle);
+
+    struct libusb_device_descriptor desc;
+    int result = libusb_get_device_descriptor(device, &desc);
+    if (result < 0) {
+        printf("Could not get descriptor...\n");
+    }
+
+    char buf[128];
+    result = libusb_get_string_descriptor_ascii(handle, desc.iSerialNumber, (unsigned char *) buf, sizeof(buf));
+    if (result >= 0 && (size_t) result <= sizeof(buf)) {
+        char *dev_ser = malloc(result + 1);
+        memcpy(dev_ser, buf, result);
+        dev_ser[result] = '\0';
+        printf("Device serial: %s\n", dev_ser);
+        free(dev_ser);
+    }
+
+    for (uint8_t i = 0; i < desc.bNumConfigurations; i++) {
+        struct libusb_config_descriptor *config;
+        result = libusb_get_config_descriptor(device, i, &config);
+        if (LIBUSB_SUCCESS != result) {
+            printf("Error getting config descriptor\n");
+            continue;
+        }
+
+        printf("  Configuration:\n");
+        printf("    wTotalLength:        %u\n", config->wTotalLength);
+        printf("    bNumInterfaces:      %u\n", config->bNumInterfaces);
+        printf("    bConfigurationValue: %u\n", config->bConfigurationValue);
+        printf("    iConfiguration:      %u\n", config->iConfiguration);
+        printf("    bmAttributes:        %02xh\n", config->bmAttributes);
+        printf("    MaxPower:            %u\n", config->MaxPower);
+
+        for (uint8_t j = 0; j < config->bNumInterfaces; j++) {
+            struct libusb_interface iface = config->interface[j];
+            for (int k = 0; k < iface.num_altsetting; k++) {
+                struct libusb_interface_descriptor as = iface.altsetting[k];
+                printf("    Interface:\n");
+                printf("      bInterfaceNumber:   %u\n", as.bInterfaceNumber);
+                printf("      bAlternateSetting:  %u\n", as.bAlternateSetting);
+                printf("      bNumEndpoints:      %u\n", as.bNumEndpoints);
+                printf("      bInterfaceClass:    %u\n", as.bInterfaceClass);
+                printf("      bInterfaceSubClass: %u\n", as.bInterfaceSubClass);
+                printf("      bInterfaceProtocol: %u\n", as.bInterfaceProtocol);
+                printf("      iInterface:         %u\n", as.iInterface);
+
+                for (uint8_t l = 0; l < config->interface[j].altsetting[k].bNumEndpoints; l++) {
+                    struct libusb_endpoint_descriptor ep = as.endpoint[l];
+                    printf("      Endpoint:\n");
+                    printf("        bEndpointAddress: %02xh\n", ep.bEndpointAddress);
+                    printf("        bmAttributes:     %02xh\n", ep.bmAttributes);
+                    printf("        wMaxPacketSize:   %u\n", ep.wMaxPacketSize);
+                    printf("        bInterval:        %u\n", ep.bInterval);
+                    printf("        bRefresh:         %u\n", ep.bRefresh);
+                    printf("        bSynchAddress:    %u\n", ep.bSynchAddress);
+
+                    for (int m = 0; m < ep.extra_length;) {
+                        if (LIBUSB_DT_SS_ENDPOINT_COMPANION == ep.extra[m + 1]) {
+                            struct libusb_ss_endpoint_companion_descriptor *ep_comp;
+
+                            result = libusb_get_ss_endpoint_companion_descriptor(NULL, &ep, &ep_comp);
+                            if (LIBUSB_SUCCESS != result) {
+                                continue;
+                            }
+
+                            printf("        USB 3.0 Endpoint Companion:\n");
+                            printf("          bMaxBurst:         %u\n", ep_comp->bMaxBurst);
+                            printf("          bmAttributes:      %02xh\n", ep_comp->bmAttributes);
+                            printf("          wBytesPerInterval: %u\n", ep_comp->wBytesPerInterval);
+                            
+                            libusb_free_ss_endpoint_companion_descriptor(ep_comp);
+                        }
+                        m += ep.extra[i];
+                    }
+                }
+            }
+        }
+
+        libusb_free_config_descriptor(config);
+    }
 }
